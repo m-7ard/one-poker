@@ -2,7 +2,6 @@ from random import randint, shuffle
 from tkinter import *
 import threading
 import time
-from turtle import color
 
 
 class Card():

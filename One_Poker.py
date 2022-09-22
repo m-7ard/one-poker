@@ -1,12 +1,14 @@
+from functools import partial
 from random import randint, shuffle
+from textwrap import fill
 from tkinter import *
 import threading
 import time
-from turtle import color
 
 
 class Card():
     value_letters = {11: 'J', 12: 'Q', 13: 'K', 14: 'A'}
+    
     def __init__(self, suit, value):
         self.suit = suit
         self.letter = self.value_letters[value] if value in self.value_letters else None
@@ -22,8 +24,7 @@ class Card():
 
 class Deck():
     def __init__(self, subdecks=3, split=2):
-        self.cards = [Card(suit, value) for suit in ["♥","♠","♦","♣"] 
-                  for value in range(2, 15) for _ in range(subdecks)]
+        self.cards = [Card(suit, value) for suit in ["♥", "♠", "♦", "♣"] for value in range(2, 15) for _ in range(subdecks)]
         shuffle(self.cards)
         self.split = int(len(self.cards) / split)
         self.cards = self.cards[:self.split]
@@ -46,23 +47,25 @@ class Player():
             self.hand.append(card)
 
     def place_card(self, Button_Top, Button_Bottom):
-        def return_card(position, button):
+        def on_click_card(button):
             nonlocal card
-            card = self.hand[position]
-            button['bg'] = 'OliveDrab4'
-            button['disabledforeground'] = 'white'
+            card = button.linked_card
+            button.linked_card = None
+            button.config(bg='OliveDrab4', disabledforeground='white')
 
         card = None
-        if self.ai == True:
+        if self.ai:
             if self.position == "Advantage" or self.position == "Disadvantage":
                 card = sorted(self.hand, key=lambda card: card.value)[0]
             else:
                 card = sorted(self.hand, key=lambda card: card.value)[1]
         else:
-            Button_Top['command'] = lambda: return_card(0, Button_Top)
-            Button_Bottom['command'] = lambda: return_card(1, Button_Bottom)
-            while card == None:
-                pass
+            Button_Top['command'] = partial(on_click_card, Button_Top)
+
+            Button_Bottom['command'] = partial(on_click_card, Button_Bottom)
+        
+        while card is None:
+            pass
         
         self.hand.remove(card)
         return card
@@ -104,7 +107,6 @@ class Utility():
         else:
             return bigger_than / population if population else 0
         
-    
     """ Calculate martingale """
     def kelly_criterion(success_probability, odds=1):
         return success_probability - ((1 - success_probability) / odds)
@@ -139,29 +141,28 @@ class Game():
         # Global pick variable
         self.pick = None
 
-
         # Wait until all buttons have been created
         Flag.wait()
-        self.assign_betting_commands()
     
     def assign_betting_commands(self):
-        def return_pick(button_pick):
+        def on_click_choice(button_pick):
             self.pick = button_pick
-        def continue_going():
+
+        def on_click_continue():
             self.GUI.Button_Continue['state'] = 'disabled'
             Flag.set()
 
-        self.GUI.Button_Check['command'] = lambda: return_pick('Check')
-        self.GUI.Button_Raise['command'] = lambda: return_pick('Raise')
-        self.GUI.Button_Fold['command'] = lambda: return_pick('Fold')
-        self.GUI.Button_Call['command'] = lambda: return_pick('Call')
-        self.GUI.Button_Continue['command'] = lambda: continue_going()
+        self.GUI.Button_Check['command'] =      partial(on_click_choice, self.GUI.Button_Check['text'])
+        self.GUI.Button_Raise['command'] =      partial(on_click_choice, self.GUI.Button_Raise['text'])
+        self.GUI.Button_Fold['command'] =       partial(on_click_choice, self.GUI.Button_Fold['text'])
+        self.GUI.Button_Call['command'] =       partial(on_click_choice, self.GUI.Button_Call['text'])
+        self.GUI.Button_Continue['command'] =   on_click_continue
 
     """	Generate each player's high-low card count """
     def card_ranking(self):
         for player in self.player_set:
             player.high = len([card for card in player.hand if card.ranking == 'High'])
-            player.low  = len([card for card in player.hand if card.ranking == 'Low'])
+            player.low = len([card for card in player.hand if card.ranking == 'Low'])
 
         for player in self.player_set:
             opponent = next(iter({player} ^ self.player_set))
@@ -190,13 +191,22 @@ class Game():
     """ Place a card from the hand into the Board's cards object """
     def decision_phase(self):
         for player in self.player_order:
-            if player.ai == False:
-                self.GUI.Button_Card_Top['text'] = player.hand[0]
-                self.GUI.Button_Card_Top['state'] = 'normal'
-                self.GUI.Button_Card_Bottom['text'] = player.hand[1]
-                self.GUI.Button_Card_Bottom['state'] = 'normal'
+            # Update the card-choice buttons
+            if player.ai is False:
+                for card in player.hand:
+                    if card not in [self.GUI.Button_Card_Bottom.linked_card, self.GUI.Button_Card_Top.linked_card]:
+                        for button in [self.GUI.Button_Card_Bottom, self.GUI.Button_Card_Top]:
+                            if button['text'] == '':
+                                button['text'] = card
+                                button.linked_card = card
+                                break
 
+                self.GUI.Button_Card_Top['state'] = 'normal'
+                self.GUI.Button_Card_Bottom['state'] = 'normal'
+            
+            # Choose the card
             self.Board.cards[player] = player.place_card(self.GUI.Button_Card_Top, self.GUI.Button_Card_Bottom)
+            # Update the board and buttons once the card has been placed down
             self.GUI.attributes[player]['card']['text'] = 'Set Card'
             self.GUI.Button_Card_Top['state'] = 'disabled'
             self.GUI.Button_Card_Bottom['state'] = 'disabled'
@@ -221,7 +231,6 @@ class Game():
             # Max amount willing to bet
             max_bet = Utility.kelly_criterion(success_probability, odds) * (player.balance + pot[player])
 
-            
             if player.balance == 0:
                 # Player has all-inned
                 self.pick = 'Check'
@@ -293,7 +302,7 @@ class Game():
                 self.GUI.Button_Call['state'] = 'normal'
                 self.GUI.Button_Fold['state'] = 'normal'
 
-            while self.pick == None:
+            while self.pick is None:
                 pass
 
             self.GUI.Button_Raise['state'] = 'disabled'
@@ -303,7 +312,6 @@ class Game():
             self.GUI.Button_Check['state'] = 'disabled'
             self.GUI.Button_Fold['state'] = 'disabled'
         
-
         # Define / reset winner
         self.Winner = None
 
@@ -324,10 +332,10 @@ class Game():
         while (
                any([pot[player] != max(pot.values()) and player.balance for player in self.round_players])
                or 'start' in round_actions
-            ):
+        ):
             round_actions = []
             for player in self.round_players:
-                while self.pick == None:
+                while self.pick is None:
                     # Re/declare amount and pick, pick being a global variable
                     amount = 0
 
@@ -349,12 +357,12 @@ class Game():
                         # Will only raise by the max bet + 1, can be changed to anything
                         amount = max(pot.values()) - pot[player] + 1 if player.ai \
                                  else self.GUI.Entry_Raise.get()
-                        if str(amount).isdigit() == False or max(pot.values()) - pot[player] >= int(amount) or int(amount) > player.balance:
+                        if str(amount).isdigit() is False or max(pot.values()) - pot[player] >= int(amount) or int(amount) > player.balance:
                             self.pick = None
                             continue
                         else:
                             amount = int(amount)
-                            if amount == player.balance: 
+                            if amount == player.balance:
                                 self.pick = 'all in'
                             pot[player] += player.bet(amount)
 
@@ -389,7 +397,6 @@ class Game():
         for player in self.player_set:
             self.GUI.attributes[player]['card']['text'] = self.Board.cards[player]
 
-
         # Check if there already is a winner, else determine winner / tie.
         if self.Winner:
             self.next_round_order()
@@ -409,7 +416,7 @@ class Game():
 
     """ Reallocate the bets to the winner, if there is one """
     def payout_phase(self):
-        if self.Winner == None:
+        if self.Winner is None:
             for player in self.player_set:
                 player.balance += self.Board.bets[player]
                 self.GUI.attributes[player]['name']['bg'] = 'green yellow'
@@ -456,33 +463,32 @@ class Game():
         self.GUI.Listbox_Log.insert(END, f'Round {self.round}')
         self.GUI.Listbox_Log.itemconfig(END, {'bg': 'PaleGreen3', 'fg': 'black'})
         
-
         self.GUI.Listbox_Log.yview(END)
 
+    """ Wait for the continue button to be pressed (if auto_continue if False); Reset labels """
     def go_to_next_round(self):
-        if self.auto_continue == False:
+        if self.auto_continue is False:
             self.GUI.Button_Continue['state'] = 'normal'
             Flag.clear()
         
-        Flag.wait()
-        if self.GUI.Button_Card_Top['bg'] == 'OliveDrab4':
-            self.GUI.Button_Card_Top['text'] = ''
-        elif self.GUI.Button_Card_Bottom['bg'] == 'OliveDrab4':
-            self.GUI.Button_Card_Bottom['text'] = ''
-        self.GUI.Apply_Theme(self.GUI.Label_Name_Player_1, self.GUI.Indicator_Theme)
-        self.GUI.Apply_Theme(self.GUI.Label_Name_Player_2, self.GUI.Indicator_Theme)
-        self.GUI.Apply_Theme(self.GUI.Button_Card_Top, self.GUI.Button_Theme)
-        self.GUI.Apply_Theme(self.GUI.Button_Card_Bottom, self.GUI.Button_Theme)
+        Flag.wait() # wait until continue is pressed, if auto_continue is off
+        for button in [self.GUI.Button_Card_Top, self.GUI.Button_Card_Bottom]:
+            if button['bg'] == 'OliveDrab4':
+                button['text'] = ''
+
+        self.GUI.Label_Name_Player_1.config(**self.GUI.Indicator_Theme)
+        self.GUI.Label_Name_Player_2.config(**self.GUI.Indicator_Theme)
+        self.GUI.Button_Card_Top.config(**self.GUI.Button_Theme)
+        self.GUI.Button_Card_Bottom.config(**self.GUI.Button_Theme)
+        
         self.GUI.attributes[self.P1]['card']['text'] = ''
         self.GUI.attributes[self.P2]['card']['text'] = ''
-        
-
 
     """ Main loop """
     def run(self):
+        self.assign_betting_commands()
         self.round = 0
         Flag.wait()
-        self.assign_betting_commands()
         while len(self.player_order) > 1:
             time.sleep(1)
             self.update_round()
@@ -506,12 +512,13 @@ class Game():
         
         print(f'{self.player_order[0]} is the game winner.')
 
+
 class GUI():
     def __init__(self, P1, P2):
         self.P1 = P1
         self.P2 = P2
-        self.label_width = 8
-        self.label_height = 1
+        self.label_width = 9
+        self.label_height = 3
         self.Indicator_Theme = {
             'width': self.label_width, 
             'height': self.label_height, 
@@ -533,6 +540,7 @@ class GUI():
             'fg': 'white',
             'activebackground': 'Tan4', 
             'activeforeground': 'white',
+            'disabledforeground': 'grey50'
         }
         self.Entry_Theme = {
             'width': self.label_width, 
@@ -541,11 +549,20 @@ class GUI():
             'bg': 'PaleGreen1',
             'disabledbackground': 'PaleGreen3',
         }
-    
-    def Apply_Theme(self, Tkinter_Object, Theme):
-        for option, value in Theme.items():
-            Tkinter_Object[option] = value
 
+    """ Create and place a Tkinter object """
+    @staticmethod
+    def create(object, placement='pack', **placement_config):
+            if placement == 'pack':
+                object.pack(**placement_config)
+            elif placement == 'grid':
+                object.grid(**placement_config)
+            elif placement == 'place':
+                object.place(**placement_config)
+
+            return object
+
+    """ Fill in the initial values and create an object with player values """
     def classify(self, P1, P2):
         self.attributes = {
             P1: {
@@ -565,8 +582,7 @@ class GUI():
                 'pot': self.Label_Pot_Player_2
             }
         }
-
-
+            
         self.Label_Name_Player_1['text'] = f"{P1.name} {'(AI)' if P1.ai else ''}"
         self.Label_Balance_Player_1['text'] = P1.balance
         self.Label_High_Player_1['text'] = 0
@@ -583,149 +599,73 @@ class GUI():
         self.Label_Pot_Player_2['text'] = 0
 
     def run(self):
+        """ Root """
         self.Master = Tk()
         self.Master.resizable(False, False)
         
-        self.Frame_Indicators = Frame(self.Master)
-        self.Frame_Player_1 = Frame(self.Master)
-        self.Frame_Player_2 = Frame(self.Master)
-        self.Frame_Betting = Frame(self.Master)
-
-        self.Frame_Indicators.pack(side='top', fill='x')
-        self.Frame_Player_1.pack(side='top',fill='x')
-        self.Frame_Player_2.pack(side='top', fill='x')
+        """ Frames in respective order """
+        self.Frame_Indicators = self.create(Frame(self.Master), side='top')
+        self.Frame_Player_1 =   self.create(Frame(self.Master), side='top')
+        self.Frame_Player_2 =   self.create(Frame(self.Master), side='top')
+        self.Frame_Betting =    self.create(Frame(self.Master), side='top', fill='x')
 
         """ Indicator Labels """
-        self.Label_Round =      Label(self.Frame_Indicators, text='Round 0')
-        self.Label_Balance =    Label(self.Frame_Indicators, text='Balance')
-        self.Label_High =       Label(self.Frame_Indicators, text='High')
-        self.Label_Low =        Label(self.Frame_Indicators, text='Low')
-        self.Label_Pot =        Label(self.Frame_Indicators, text='Pot')
-        self.Label_Card =       Label(self.Frame_Indicators, text='Card')
-
-        self.Apply_Theme(self.Label_Round, self.Indicator_Theme)
-        self.Apply_Theme(self.Label_Balance, self.Indicator_Theme)
-        self.Apply_Theme(self.Label_High, self.Indicator_Theme)
-        self.Apply_Theme(self.Label_Low, self.Indicator_Theme)
-        self.Apply_Theme(self.Label_Pot, self.Indicator_Theme)
-        self.Apply_Theme(self.Label_Card, self.Indicator_Theme)
-
-        self.Label_Round.pack(side='left',)
-        self.Label_Balance.pack(side='left',)
-        self.Label_High.pack(side='left',)
-        self.Label_Low.pack(side='left',)
-        self.Label_Pot.pack(side='left',)
-        self.Label_Card.pack(side='left',)
+        self.Label_Round =      self.create(Label(self.Frame_Indicators, text='Round 0', **self.Indicator_Theme), side='left')
+        self.Label_Balance =    self.create(Label(self.Frame_Indicators, text='Balance', **self.Indicator_Theme), side='left')
+        self.Label_High =       self.create(Label(self.Frame_Indicators, text='High', **self.Indicator_Theme), side='left')
+        self.Label_Low =        self.create(Label(self.Frame_Indicators, text='Low', **self.Indicator_Theme), side='left')
+        self.Label_Pot =        self.create(Label(self.Frame_Indicators, text='Pot', **self.Indicator_Theme), side='left')
+        self.Label_Card =       self.create(Label(self.Frame_Indicators, text='Card', **self.Indicator_Theme), side='left')
 
         """ Player 1 Labels"""
-        self.Label_Name_Player_1 =      Label(self.Frame_Player_1, text='Player 1')
-        self.Label_Balance_Player_1 =   Label(self.Frame_Player_1, text='0')
-        self.Label_High_Player_1 =      Label(self.Frame_Player_1, text='0')
-        self.Label_Low_Player_1 =       Label(self.Frame_Player_1, text='0')
-        self.Label_Pot_Player_1 =       Label(self.Frame_Player_1, text='0')
-        self.Label_Card_Player_1 =      Label(self.Frame_Player_1, text='None')
-
-        self.Apply_Theme(self.Label_Name_Player_1, self.Indicator_Theme)
-        self.Apply_Theme(self.Label_Balance_Player_1, self.Score_Theme)
-        self.Apply_Theme(self.Label_High_Player_1, self.Score_Theme)
-        self.Apply_Theme(self.Label_Low_Player_1, self.Score_Theme)
-        self.Apply_Theme(self.Label_Pot_Player_1, self.Score_Theme)
-        self.Apply_Theme(self.Label_Card_Player_1, self.Score_Theme)
-
-        self.Label_Name_Player_1.pack(side='left',)
-        self.Label_Balance_Player_1.pack(side='left',)
-        self.Label_High_Player_1.pack(side='left',)
-        self.Label_Low_Player_1.pack(side='left',)
-        self.Label_Pot_Player_1.pack(side='left',)
-        self.Label_Card_Player_1.pack(side='left',)
+        self.Label_Name_Player_1 =      self.create(Label(self.Frame_Player_1, text='Player 1', **self.Indicator_Theme), side='left')
+        self.Label_Balance_Player_1 =   self.create(Label(self.Frame_Player_1, text='Balance', **self.Score_Theme), side='left')
+        self.Label_High_Player_1 =      self.create(Label(self.Frame_Player_1, text='High', **self.Score_Theme), side='left')
+        self.Label_Low_Player_1 =       self.create(Label(self.Frame_Player_1, text='Low', **self.Score_Theme), side='left')
+        self.Label_Pot_Player_1 =       self.create(Label(self.Frame_Player_1, text='Pot', **self.Score_Theme), side='left')
+        self.Label_Card_Player_1 =      self.create(Label(self.Frame_Player_1, text='Card', **self.Score_Theme), side='left')
 
         """ Player 2 Labels """
-        self.Label_Name_Player_2 =      Label(self.Frame_Player_2, text='Player 2')
-        self.Label_Balance_Player_2 =   Label(self.Frame_Player_2, text='0')
-        self.Label_High_Player_2 =      Label(self.Frame_Player_2, text='0')
-        self.Label_Low_Player_2 =       Label(self.Frame_Player_2, text='0')
-        self.Label_Pot_Player_2 =       Label(self.Frame_Player_2, text='0')
-        self.Label_Card_Player_2 =      Label(self.Frame_Player_2, text='None')
-
-        self.Apply_Theme(self.Label_Name_Player_2, self.Indicator_Theme)
-        self.Apply_Theme(self.Label_Balance_Player_2, self.Score_Theme)
-        self.Apply_Theme(self.Label_High_Player_2, self.Score_Theme)
-        self.Apply_Theme(self.Label_Low_Player_2, self.Score_Theme)
-        self.Apply_Theme(self.Label_Pot_Player_2, self.Score_Theme)
-        self.Apply_Theme(self.Label_Card_Player_2, self.Score_Theme)
-
-        self.Label_Name_Player_2.pack(side='left',)
-        self.Label_Balance_Player_2.pack(side='left',)
-        self.Label_High_Player_2.pack(side='left',)
-        self.Label_Low_Player_2.pack(side='left',)
-        self.Label_Pot_Player_2.pack(side='left',)
-        self.Label_Card_Player_2.pack(side='left',)
+        self.Label_Name_Player_2 =      self.create(Label(self.Frame_Player_2, text='Player 2', **self.Indicator_Theme), side='left')
+        self.Label_Balance_Player_2 =   self.create(Label(self.Frame_Player_2, text='Balance', **self.Score_Theme), side='left')
+        self.Label_High_Player_2 =      self.create(Label(self.Frame_Player_2, text='High', **self.Score_Theme), side='left')
+        self.Label_Low_Player_2 =       self.create(Label(self.Frame_Player_2, text='Low', **self.Score_Theme), side='left')
+        self.Label_Pot_Player_2 =       self.create(Label(self.Frame_Player_2, text='Pot', **self.Score_Theme), side='left')
+        self.Label_Card_Player_2 =      self.create(Label(self.Frame_Player_2, text='Card', **self.Score_Theme), side='left')
 
         """ Betting Window """
-        self.Frame_Betting =            Frame(self.Master)
-        self.Frame_Betting_Left =       Frame(self.Frame_Betting)
-        self.Frame_Betting_Right =      Frame(self.Frame_Betting)
-        self.Frame_Betting_Top =        Frame(self.Frame_Betting_Left)
-        self.Frame_Betting_Bottom =     Frame(self.Frame_Betting_Left)
+        self.Frame_Betting_Left =       self.create(Frame(self.Frame_Betting), side='left')
+        self.Frame_Betting_Right =      self.create(Frame(self.Frame_Betting), side='left', expand=YES)
+        self.Frame_Betting_Top =        self.create(Frame(self.Frame_Betting_Left), side='top')
+        self.Frame_Betting_Bottom =     self.create(Frame(self.Frame_Betting_Left), side='top')
 
         for x in range(4):
             Label(self.Frame_Betting_Top, width=self.label_width, relief=RAISED).grid(row=0, column=x)
         for x in range(4):
             Label(self.Frame_Betting_Bottom, width=self.label_width, relief=RAISED).grid(row=0, column=x)
+        
 
         # Top
-        self.Button_Card_Top =  Button(self.Frame_Betting_Top)
-        self.Button_Raise =     Button(self.Frame_Betting_Top, text='Raise')
-        self.Button_Call =      Button(self.Frame_Betting_Top, text='Call')
-        self.Button_Check =     Button(self.Frame_Betting_Top, text='Check')
-
-        self.Apply_Theme(self.Button_Card_Top, self.Button_Theme)
-        self.Apply_Theme(self.Button_Raise, self.Button_Theme)
-        self.Apply_Theme(self.Button_Call, self.Button_Theme)
-        self.Apply_Theme(self.Button_Check, self.Button_Theme)
+        self.Button_Card_Top =  self.create(Button(self.Frame_Betting_Top, **self.Button_Theme), placement='grid', row=0, column=0, sticky='ew')
+        self.Button_Raise =     self.create(Button(self.Frame_Betting_Top, text='Raise', **self.Button_Theme), placement='grid', row=0, column=1, sticky='ew')
+        self.Button_Call =      self.create(Button(self.Frame_Betting_Top, text='Call', **self.Button_Theme), placement='grid', row=0, column=2, sticky='ew')
+        self.Button_Check =     self.create(Button(self.Frame_Betting_Top, text='Check', **self.Button_Theme), placement='grid', row=0, column=3, sticky='ew')
+        
+        self.Button_Card_Top.linked_card = None
 
         # Bottom
-        self.Button_Card_Bottom = Button(self.Frame_Betting_Bottom)
-        self.Entry_Raise = Entry(self.Frame_Betting_Bottom)
-        self.Button_Fold = Button(self.Frame_Betting_Bottom, text='Fold')
-        self.Button_Continue = Button(self.Frame_Betting_Bottom, text='Continue')
+        self.Button_Card_Bottom = self.create(Button(self.Frame_Betting_Bottom, **self.Button_Theme), placement='grid', row=0, column=0, sticky='ew')
+        self.Entry_Raise = self.create(Entry(self.Frame_Betting_Bottom, **self.Entry_Theme), placement='grid', row=0, column=1, sticky='ewns')
+        self.Button_Fold = self.create(Button(self.Frame_Betting_Bottom, text='Fold', **self.Button_Theme), placement='grid', row=0, column=2, sticky='ew')
+        self.Button_Continue = self.create(Button(self.Frame_Betting_Bottom, text='Continue', **self.Button_Theme), placement='grid', row=0, column=3, sticky='ew')        
 
-        self.Apply_Theme(self.Button_Card_Bottom, self.Button_Theme)
-        self.Apply_Theme(self.Entry_Raise, self.Entry_Theme)
-        self.Apply_Theme(self.Button_Fold, self.Button_Theme)
-        self.Apply_Theme(self.Button_Continue, self.Button_Theme)
-
-        # Top Packing
-        self.Button_Card_Top.grid(row=0, column=0, sticky='ew')
-        self.Button_Raise.grid(row=0, column=1, sticky='ew')
-        self.Button_Call.grid(row=0, column=2, sticky='ew')
-        self.Button_Check.grid(row=0, column=3, sticky='ew')
-
-        # Bottom Packing
-        self.Button_Card_Bottom.grid(row=0, column=0, sticky='ew')
-        self.Entry_Raise.grid(row=0, column=1, columnspan=1,sticky='ewns')
-        self.Button_Fold.grid(row=0, column=2, sticky='ew')
-        self.Button_Continue.grid(row=0, column=3, sticky='ew')
-
-        # Frame Packing
-        self.Frame_Betting.pack(side='top', anchor='w')
-        self.Frame_Betting_Left.pack(side='left')
-        self.Frame_Betting_Right.pack(side='right')
-        self.Frame_Betting_Top.pack(side='top', anchor='w')
-        self.Frame_Betting_Bottom.pack(side='top', anchor='w')
+        self.Button_Card_Bottom.linked_card = None
 
         """ Action Log """
-        self.Frame_Log = Frame(self.Frame_Betting_Right)
-        self.Frame_Log.pack(side='left')
+        self.Frame_Log = self.create(Frame(self.Frame_Betting_Right), fill='x')
+        Label(self.Frame_Log, width=self.label_width*2 + 1, relief=RAISED).grid(row=0, column=0, sticky='nsew')
         
-        self.Listbox_Log = Listbox(
-            self.Frame_Log, 
-            relief=SUNKEN, 
-            height=3, 
-            bg='PaleGreen1', 
-            selectbackground='Tan1', 
-            selectforeground='black')
-        self.Listbox_Log.pack()
+        self.Listbox_Log = self.create(Listbox(self.Frame_Log, relief=SUNKEN, height=3, bg='PaleGreen1', selectbackground='Tan1', selectforeground='black'), placement='grid', row=0, column=0, sticky='nsew')
 
         """ Fill in the values using the Game instance information """
         self.classify(self.P1, self.P2)
@@ -734,15 +674,9 @@ class GUI():
         self.Master.mainloop()
 
 
-
-
-
-
 Flag = threading.Event()
 Game_1 = Game(False, True)
 
 
 
 Game_1.run()
-
-
